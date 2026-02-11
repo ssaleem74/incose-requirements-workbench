@@ -309,8 +309,8 @@ document.addEventListener("keydown",e=>{
   const tag=document.activeElement?.tagName?.toLowerCase();
   const isTyping=tag==="input"||tag==="textarea"||tag==="select";
   
-  // Ctrl/Cmd + key shortcuts
-  if(e.ctrlKey||e.metaKey){
+  // Alt + key shortcuts (to avoid browser conflicts)
+  if(e.altKey&&!e.ctrlKey&&!e.metaKey){
     if(e.key==="n"||e.key==="N"){
       e.preventDefault();
       if(S.view!=="welcome")addReq();
@@ -327,6 +327,15 @@ document.addEventListener("keydown",e=>{
     }else if(e.key==="g"||e.key==="G"){
       e.preventDefault();
       if(S.view!=="welcome"){S.view="glossary";render();}
+    }else if(e.key==="d"||e.key==="D"){
+      e.preventDefault();
+      if(S.view!=="welcome"){S.view="dashboard";render();}
+    }else if(e.key==="a"||e.key==="A"){
+      e.preventDefault();
+      if(S.view!=="welcome"){S.view="editor";render();}
+    }else if(e.key==="t"||e.key==="T"){
+      e.preventDefault();
+      if(S.view!=="welcome"){S.view="traceability";render();}
     }
   }
   
@@ -771,13 +780,13 @@ function render(){
 
     // Search bar for Author view
     const searchBar=h("div",{style:{marginBottom:"14px",display:"flex",gap:"8px",alignItems:"center"}});
-    const searchInput=h("input",{id:"author-search-input",className:"input",style:{flex:1,maxWidth:"300px"},placeholder:"🔍 Search requirements... (Ctrl+F)",value:S.authorSearch||"",onInput:e=>{S.authorSearch=e.target.value;}});
+    const searchInput=h("input",{id:"author-search-input",className:"input",style:{flex:1,maxWidth:"300px"},placeholder:"🔍 Search requirements...",value:S.authorSearch||"",onInput:e=>{S.authorSearch=e.target.value;}});
     searchBar.appendChild(searchInput);
     if(S.authorSearch){
       searchBar.appendChild(h("button",{className:"btn btn-sec",style:{padding:"6px 12px",fontSize:"11px"},onClick:()=>{S.authorSearch="";render();}},"✕ Clear"));
     }
     searchBar.appendChild(h("span",{style:{fontSize:"11px",color:"var(--textDim)",marginLeft:"auto"}},
-      "↑↓ Navigate • Ctrl+N New • Ctrl+S Save"));
+      "↑↓ Navigate • Alt+N New • Alt+S Save"));
     left.appendChild(searchBar);
 
     // Filter requirements based on search
