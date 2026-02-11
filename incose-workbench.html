@@ -15,9 +15,20 @@
   --accent:#38bdf8;--accentDim:#0c4a6e;--success:#10b981;--successDim:#064e3b;
   --warn:#f59e0b;--warnDim:#78350f;--danger:#ef4444;--dangerDim:#7f1d1d;
   --purple:#a78bfa;--purpleDim:#4c1d95;--teal:#2dd4bf;--orange:#fb923c;--pink:#f472b6;
+  --bodyBg:linear-gradient(160deg,var(--bg),var(--bg2),#0d1424);
+}
+/* Light Theme */
+:root.light {
+  --bg:#f8fafc;--bg2:#f1f5f9;--surface:#ffffff;--surfAlt:#f8fafc;
+  --card:#ffffff;--cardHov:#f1f5f9;--border:#e2e8f0;--borderHi:#cbd5e1;
+  --text:#1e293b;--textMid:#475569;--textDim:#94a3b8;
+  --accent:#0284c7;--accentDim:#e0f2fe;--success:#059669;--successDim:#d1fae5;
+  --warn:#d97706;--warnDim:#fef3c7;--danger:#dc2626;--dangerDim:#fee2e2;
+  --purple:#7c3aed;--purpleDim:#ede9fe;--teal:#0d9488;--orange:#ea580c;--pink:#db2777;
+  --bodyBg:linear-gradient(160deg,#f8fafc,#f1f5f9,#e2e8f0);
 }
 *{margin:0;padding:0;box-sizing:border-box;}
-body{background:linear-gradient(160deg,var(--bg),var(--bg2),#0d1424);color:var(--text);font-family:'DM Sans','Segoe UI',system-ui,sans-serif;min-height:100vh;}
+body{background:var(--bodyBg);color:var(--text);font-family:'DM Sans','Segoe UI',system-ui,sans-serif;min-height:100vh;transition:background .3s,color .3s;}
 ::-webkit-scrollbar{width:5px;}::-webkit-scrollbar-track{background:transparent;}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
 .mono{font-family:'JetBrains Mono',monospace;}
@@ -293,6 +304,31 @@ function gid(p="REQ"){_id++;return p+"-"+String(_id).padStart(4,"0");}
 function mkReq(o={}){return{id:gid(),text:"",type:"Functional",level:"System Requirement",priority:"Medium",verification:"Test",rationale:"",parent:"",status:"Draft",source:"",risk:"Medium",created:new Date().toISOString(),modified:new Date().toISOString(),...o};}
 function dl(content,type,fn){const b=new Blob([content],{type});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download=fn;a.click();URL.revokeObjectURL(u);}
 
+// ─── THEME TOGGLE ────────────────────────────────────────
+function getTheme(){
+  const saved=localStorage.getItem("incose_theme");
+  if(saved)return saved;
+  // Check system preference
+  if(window.matchMedia&&window.matchMedia("(prefers-color-scheme: light)").matches)return "light";
+  return "dark";
+}
+function setTheme(theme){
+  localStorage.setItem("incose_theme",theme);
+  if(theme==="light"){
+    document.documentElement.classList.add("light");
+  }else{
+    document.documentElement.classList.remove("light");
+  }
+}
+function toggleTheme(){
+  const current=document.documentElement.classList.contains("light")?"light":"dark";
+  const newTheme=current==="light"?"dark":"light";
+  setTheme(newTheme);
+  render();
+}
+// Apply saved theme on load
+setTheme(getTheme());
+
 // ─── STATE ────────────────────────────────────────────────
 const S={
   view:"welcome",reqs:[],selId:null,glossary:[{term:"SOI",def:"System of Interest"},{term:"ICD",def:"Interface Control Document"},{term:"V&V",def:"Verification and Validation"},{term:"ConOps",def:"Concept of Operations"}],
@@ -303,39 +339,162 @@ const S={
 
 function setState(updates){Object.assign(S,updates);render();}
 
+// ─── UNDO/REDO SYSTEM ──────────────────────────────────────
+const History={
+  undoStack:[],
+  redoStack:[],
+  maxSize:50,
+  
+  // Save current state to undo stack
+  save(){
+    const snapshot={
+      reqs:JSON.parse(JSON.stringify(S.reqs)),
+      glossary:JSON.parse(JSON.stringify(S.glossary)),
+      project:S.project,
+      selId:S.selId
+    };
+    this.undoStack.push(snapshot);
+    if(this.undoStack.length>this.maxSize)this.undoStack.shift();
+    this.redoStack=[];// Clear redo when new action is taken
+  },
+  
+  // Undo last action
+  undo(){
+    if(this.undoStack.length===0)return false;
+    // Save current state to redo stack
+    const current={
+      reqs:JSON.parse(JSON.stringify(S.reqs)),
+      glossary:JSON.parse(JSON.stringify(S.glossary)),
+      project:S.project,
+      selId:S.selId
+    };
+    this.redoStack.push(current);
+    
+    // Restore previous state
+    const prev=this.undoStack.pop();
+    S.reqs=prev.reqs;
+    S.glossary=prev.glossary;
+    S.project=prev.project;
+    S.selId=prev.selId;
+    
+    // Update _id counter
+    if(S.reqs.length>0){
+      _id=Math.max(0,...S.reqs.map(r=>parseInt(r.id.replace(/\D/g,""))||0));
+    }
+    
+    autoSave();
+    return true;
+  },
+  
+  // Redo previously undone action
+  redo(){
+    if(this.redoStack.length===0)return false;
+    // Save current state to undo stack
+    const current={
+      reqs:JSON.parse(JSON.stringify(S.reqs)),
+      glossary:JSON.parse(JSON.stringify(S.glossary)),
+      project:S.project,
+      selId:S.selId
+    };
+    this.undoStack.push(current);
+    
+    // Restore redo state
+    const next=this.redoStack.pop();
+    S.reqs=next.reqs;
+    S.glossary=next.glossary;
+    S.project=next.project;
+    S.selId=next.selId;
+    
+    // Update _id counter
+    if(S.reqs.length>0){
+      _id=Math.max(0,...S.reqs.map(r=>parseInt(r.id.replace(/\D/g,""))||0));
+    }
+    
+    autoSave();
+    return true;
+  },
+  
+  canUndo(){return this.undoStack.length>0;},
+  canRedo(){return this.redoStack.length>0;}
+};
+
 // ─── KEYBOARD SHORTCUTS ────────────────────────────────────
 document.addEventListener("keydown",e=>{
-  // Don't trigger shortcuts when typing in inputs
+  // Don't trigger shortcuts when typing in inputs (except for Alt shortcuts)
   const tag=document.activeElement?.tagName?.toLowerCase();
   const isTyping=tag==="input"||tag==="textarea"||tag==="select";
   
-  // Alt + key shortcuts (to avoid browser conflicts)
+  // Alt + key shortcuts (work even when typing, to avoid browser conflicts)
   if(e.altKey&&!e.ctrlKey&&!e.metaKey){
     if(e.key==="n"||e.key==="N"){
       e.preventDefault();
-      if(S.view!=="welcome")addReq();
+      e.stopPropagation();
+      if(S.view!=="welcome"){addReq();}
+      return false;
     }else if(e.key==="s"||e.key==="S"){
       e.preventDefault();
-      if(S.view!=="welcome")exportJSON();
+      e.stopPropagation();
+      if(S.view!=="welcome"){exportJSON();}
+      return false;
     }else if(e.key==="f"||e.key==="F"){
       e.preventDefault();
+      e.stopPropagation();
       if(S.view!=="welcome"){
         S.view="requirements";
         render();
         setTimeout(()=>document.getElementById("search-input")?.focus(),100);
       }
+      return false;
     }else if(e.key==="g"||e.key==="G"){
       e.preventDefault();
+      e.stopPropagation();
       if(S.view!=="welcome"){S.view="glossary";render();}
+      return false;
     }else if(e.key==="d"||e.key==="D"){
       e.preventDefault();
+      e.stopPropagation();
       if(S.view!=="welcome"){S.view="dashboard";render();}
+      return false;
     }else if(e.key==="a"||e.key==="A"){
       e.preventDefault();
+      e.stopPropagation();
       if(S.view!=="welcome"){S.view="editor";render();}
+      return false;
     }else if(e.key==="t"||e.key==="T"){
       e.preventDefault();
+      e.stopPropagation();
       if(S.view!=="welcome"){S.view="traceability";render();}
+      return false;
+    }
+  }
+  
+  // Ctrl+Z for Undo, Ctrl+Y or Ctrl+Shift+Z for Redo (only when not typing)
+  if((e.ctrlKey||e.metaKey)&&!e.altKey&&!isTyping){
+    if(e.key==="z"||e.key==="Z"){
+      if(e.shiftKey){
+        // Ctrl+Shift+Z = Redo
+        e.preventDefault();
+        if(S.view!=="welcome"&&History.redo()){
+          toast("Redo","info");
+          render();
+        }
+      }else{
+        // Ctrl+Z = Undo
+        e.preventDefault();
+        if(S.view!=="welcome"&&History.undo()){
+          toast("Undo","info");
+          render();
+        }
+      }
+      return false;
+    }else if(e.key==="y"||e.key==="Y"){
+      // Ctrl+Y = Redo
+      e.preventDefault();
+      if(S.view!=="welcome"&&History.redo()){
+        toast("Redo","info");
+        render();
+      }
+      return false;
     }
   }
   
@@ -403,12 +562,17 @@ let _debounceTimer=null;
 function debounce(fn,ms){clearTimeout(_debounceTimer);_debounceTimer=setTimeout(fn,ms);}
 
 // ─── ACTIONS ──────────────────────────────────────────────
-function addReq(){const r=mkReq();S.reqs.push(r);S.selId=r.id;S.view="editor";autoSave();toast("Created "+r.id,"success");render();}
+function addReq(){History.save();const r=mkReq();S.reqs.push(r);S.selId=r.id;S.view="editor";autoSave();toast("Created "+r.id,"success");render();}
 
 // Silent update - updates data and quality panel without full re-render (fixes input focus loss)
+// Note: We use debounced history save for silent updates to avoid saving on every keystroke
+let _historyTimer=null;
 function updateReqSilent(id,u){
   const r=S.reqs.find(x=>x.id===id);
   if(r){
+    // Save history only once when user starts typing (debounced)
+    clearTimeout(_historyTimer);
+    _historyTimer=setTimeout(()=>History.save(),1000);
     Object.assign(r,u,{modified:new Date().toISOString()});
     autoSave();
     // Update quality panel only (debounced to avoid lag while typing)
@@ -417,10 +581,11 @@ function updateReqSilent(id,u){
 }
 
 // Full update with re-render (for dropdowns, structural changes)
-function updateReq(id,u){const r=S.reqs.find(x=>x.id===id);if(r){Object.assign(r,u,{modified:new Date().toISOString()});autoSave();render();}}
-function deleteReq(id){S.reqs=S.reqs.filter(r=>r.id!==id);if(S.selId===id)S.selId=null;autoSave();toast("Deleted","info");render();}
-function dupReq(id){const o=S.reqs.find(r=>r.id===id);if(!o)return;const n={...o,id:gid(),status:"Draft",created:new Date().toISOString(),modified:new Date().toISOString()};S.reqs.push(n);autoSave();toast("Duplicated → "+n.id,"success");render();}
+function updateReq(id,u){History.save();const r=S.reqs.find(x=>x.id===id);if(r){Object.assign(r,u,{modified:new Date().toISOString()});autoSave();render();}}
+function deleteReq(id){History.save();S.reqs=S.reqs.filter(r=>r.id!==id);if(S.selId===id)S.selId=null;autoSave();toast("Deleted","info");render();}
+function dupReq(id){History.save();const o=S.reqs.find(r=>r.id===id);if(!o)return;const n={...o,id:gid(),status:"Draft",created:new Date().toISOString(),modified:new Date().toISOString()};S.reqs.push(n);autoSave();toast("Duplicated → "+n.id,"success");render();}
 function doAI(id){
+  History.save();
   const r=S.reqs.find(x=>x.id===id);if(!r||!r.text.trim())return;
   S.aiLoading=id;render();
   setTimeout(()=>{
@@ -431,10 +596,12 @@ function doAI(id){
   },400);
 }
 function bulkAI(){
+  History.save();
   let c=0;S.reqs.forEach(r=>{if(!r.text.trim())return;const a=analyze(r.text);if(a.score<80){r.text=aiRewrite(r.text,a);r.modified=new Date().toISOString();c++;}});
   autoSave();toast(`Improved ${c} requirements`,"success");render();
 }
 function doImport(){
+  History.save();
   const parsed=parseDoc(S.importText);
   if(!parsed.length){toast("No 'shall' statements found","danger");return;}
   parsed.forEach(p=>S.reqs.push(mkReq(p)));
@@ -455,15 +622,429 @@ function exportCSV(){
   toast("Exported CSV","success");
 }
 function exportReqIF(){dl(genReqIF(S.reqs,S.project),"application/xml",S.project.replace(/\s/g,"_")+".reqif");toast("Exported ReqIF","success");}
+
+function exportPDF(){
+  // Generate HTML report that will be printed to PDF
+  const now=new Date();
+  const dateStr=now.toLocaleDateString("en-US",{year:"numeric",month:"long",day:"numeric"});
+  const timeStr=now.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});
+  
+  // Calculate statistics
+  const stats={
+    total:S.reqs.length,
+    byLevel:{},
+    byType:{},
+    byStatus:{},
+    avgScore:0,
+    gradeA:0,gradeB:0,gradeC:0,gradeD:0,gradeF:0
+  };
+  
+  let totalScore=0;
+  S.reqs.forEach(r=>{
+    const a=analyze(r.text);
+    totalScore+=a.score;
+    stats.byLevel[r.level]=(stats.byLevel[r.level]||0)+1;
+    stats.byType[r.type]=(stats.byType[r.type]||0)+1;
+    stats.byStatus[r.status]=(stats.byStatus[r.status]||0)+1;
+    if(a.score>=90)stats.gradeA++;
+    else if(a.score>=80)stats.gradeB++;
+    else if(a.score>=70)stats.gradeC++;
+    else if(a.score>=60)stats.gradeD++;
+    else stats.gradeF++;
+  });
+  stats.avgScore=S.reqs.length>0?Math.round(totalScore/S.reqs.length):0;
+  
+  // Build traceability tree HTML
+  function buildTreeHtml(parentId,level){
+    const children=S.reqs.filter(r=>r.parent===parentId);
+    if(children.length===0)return "";
+    let result="";
+    children.forEach(r=>{
+      const a=analyze(r.text);
+      const txt=escXml((r.text||"").substring(0,80))+((r.text||"").length>80?"...":"");
+      const childHtml=buildTreeHtml(r.id,level+1);
+      result+='<div class="tree-item level-'+level+'">';
+      result+='<span class="tree-id">'+r.id+'</span>';
+      result+='<span class="tree-text">'+txt+'</span>';
+      result+='<span class="tree-meta">'+r.level.replace(" Requirement","")+" · "+a.score+'%</span>';
+      if(childHtml)result+='<div class="tree-children">'+childHtml+'</div>';
+      result+='</div>';
+    });
+    return result;
+  }
+  
+  let treeHtml='<div class="tree">';
+  const stakeholderNeeds=S.reqs.filter(r=>r.level==="Stakeholder Need");
+  const orphans=S.reqs.filter(r=>!r.parent&&r.level!=="Stakeholder Need"&&!S.reqs.some(c=>c.parent===r.id));
+  
+  if(stakeholderNeeds.length>0){
+    treeHtml+='<h4 style="font-size:11px;color:#475569;margin:12px 0 8px;border-bottom:1px solid #e2e8f0;padding-bottom:4px;">Stakeholder Needs</h4>';
+    stakeholderNeeds.forEach(r=>{
+      const a=analyze(r.text);
+      const txt=escXml((r.text||"").substring(0,80))+((r.text||"").length>80?"...":"");
+      const childHtml=buildTreeHtml(r.id,1);
+      treeHtml+='<div class="tree-item level-0">';
+      treeHtml+='<span class="tree-id">'+r.id+'</span>';
+      treeHtml+='<span class="tree-text">'+txt+'</span>';
+      treeHtml+='<span class="tree-meta">'+a.score+'%</span>';
+      if(childHtml)treeHtml+='<div class="tree-children">'+childHtml+'</div>';
+      treeHtml+='</div>';
+    });
+  }
+  
+  const otherRoots=S.reqs.filter(r=>!r.parent&&r.level!=="Stakeholder Need"&&S.reqs.some(c=>c.parent===r.id));
+  if(otherRoots.length>0){
+    treeHtml+='<h4 style="font-size:11px;color:#475569;margin:20px 0 8px;border-bottom:1px solid #e2e8f0;padding-bottom:4px;">Other Root Requirements</h4>';
+    otherRoots.forEach(r=>{
+      const a=analyze(r.text);
+      const txt=escXml((r.text||"").substring(0,80))+((r.text||"").length>80?"...":"");
+      const childHtml=buildTreeHtml(r.id,1);
+      treeHtml+='<div class="tree-item level-0">';
+      treeHtml+='<span class="tree-id">'+r.id+'</span>';
+      treeHtml+='<span class="tree-text">'+txt+'</span>';
+      treeHtml+='<span class="tree-meta">'+r.level.replace(" Requirement","")+" · "+a.score+'%</span>';
+      if(childHtml)treeHtml+='<div class="tree-children">'+childHtml+'</div>';
+      treeHtml+='</div>';
+    });
+  }
+  treeHtml+='</div>';
+  
+  if(orphans.length>0){
+    treeHtml+='<div class="orphan-box"><h4>⚠ Orphan Requirements (no parent, no children)</h4>';
+    treeHtml+='<p style="font-size:10px;color:#92400e;">These requirements are not linked to any hierarchy.</p>';
+    treeHtml+='<div style="margin-top:8px;">';
+    orphans.forEach(r=>{
+      treeHtml+='<span style="display:inline-block;font-family:monospace;font-size:9px;background:#fff;padding:2px 8px;border-radius:4px;margin:2px;">'+r.id+'</span>';
+    });
+    treeHtml+='</div></div>';
+  }
+  
+  // Build HTML document
+  const html=`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>${S.project} - Requirements Report</title>
+<style>
+@page{size:A4;margin:20mm 15mm;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Segoe UI',Arial,sans-serif;font-size:11px;line-height:1.5;color:#1e293b;}
+.page-break{page-break-after:always;}
+.cover{height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;background:linear-gradient(135deg,#0f172a,#1e3a5f);}
+.cover h1{font-size:32px;color:#fff;margin-bottom:8px;}
+.cover h2{font-size:18px;color:#94a3b8;font-weight:400;margin-bottom:40px;}
+.cover .meta{color:#64748b;font-size:12px;}
+.cover .badge{display:inline-block;background:#38bdf8;color:#0f172a;padding:6px 16px;border-radius:20px;font-weight:600;margin-top:20px;}
+.toc{padding:40px;}
+.toc h2{font-size:20px;border-bottom:2px solid #0284c7;padding-bottom:8px;margin-bottom:20px;}
+.toc-item{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dotted #e2e8f0;}
+.toc-item span:last-child{color:#64748b;}
+.section{padding:20px 0;}
+.section h2{font-size:18px;color:#0f172a;border-bottom:2px solid #0284c7;padding-bottom:6px;margin-bottom:16px;}
+.section h3{font-size:14px;color:#334155;margin:16px 0 10px;}
+table{width:100%;border-collapse:collapse;margin:10px 0;font-size:10px;}
+th{background:#f1f5f9;color:#475569;padding:8px 6px;text-align:left;font-weight:600;border:1px solid #e2e8f0;}
+td{padding:6px;border:1px solid #e2e8f0;vertical-align:top;}
+tr:nth-child(even){background:#f8fafc;}
+.score{font-weight:700;text-align:center;}
+.score-a{color:#059669;}
+.score-b{color:#0284c7;}
+.score-c{color:#d97706;}
+.score-d{color:#ea580c;}
+.score-f{color:#dc2626;}
+.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0;}
+.stat-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;text-align:center;}
+.stat-box .value{font-size:24px;font-weight:700;color:#0f172a;}
+.stat-box .label{font-size:10px;color:#64748b;text-transform:uppercase;}
+.footer{position:fixed;bottom:10mm;left:15mm;right:15mm;font-size:9px;color:#94a3b8;display:flex;justify-content:space-between;border-top:1px solid #e2e8f0;padding-top:8px;}
+.badge-sm{display:inline-block;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:600;}
+.badge-draft{background:#fef3c7;color:#92400e;}
+.badge-reviewed{background:#ede9fe;color:#6d28d9;}
+.badge-approved{background:#d1fae5;color:#047857;}
+</style>
+</head>
+<body>
+
+<!-- Cover Page -->
+<div class="cover">
+<h1>${escXml(S.project)}</h1>
+<h2>Requirements Specification Report</h2>
+<div class="meta">Generated on ${dateStr} at ${timeStr}</div>
+<div class="badge">INCOSE GtWR v4 Compliant</div>
+<div style="margin-top:60px;color:#64748b;font-size:11px;">
+<div>${stats.total} Requirements</div>
+<div>Average Quality Score: ${stats.avgScore}%</div>
+</div>
+</div>
+
+<div class="page-break"></div>
+
+<!-- Table of Contents -->
+<div class="toc">
+<h2>Table of Contents</h2>
+<div class="toc-item"><span>1. Executive Summary</span><span>3</span></div>
+<div class="toc-item"><span>2. Quality Statistics</span><span>3</span></div>
+<div class="toc-item"><span>3. Requirements Register</span><span>4</span></div>
+<div class="toc-item"><span>4. Traceability Matrix</span><span>${Math.ceil(S.reqs.length/25)+4}</span></div>
+<div class="toc-item"><span>5. Glossary</span><span>${Math.ceil(S.reqs.length/25)+5}</span></div>
+</div>
+
+<div class="page-break"></div>
+
+<!-- Executive Summary -->
+<div class="section">
+<h2>1. Executive Summary</h2>
+<p>This report documents ${stats.total} requirements for the "${escXml(S.project)}" project, analyzed against the INCOSE Guide to Writing Requirements (GtWR) version 4 standard with 42 quality rules.</p>
+
+<h3>Project Statistics</h3>
+<div class="stat-grid">
+<div class="stat-box"><div class="value">${stats.total}</div><div class="label">Total Requirements</div></div>
+<div class="stat-box"><div class="value">${stats.avgScore}%</div><div class="label">Avg Quality Score</div></div>
+<div class="stat-box"><div class="value">${stats.gradeA+stats.gradeB}</div><div class="label">Pass (≥80%)</div></div>
+<div class="stat-box"><div class="value">${stats.gradeC+stats.gradeD+stats.gradeF}</div><div class="label">Need Review (<80%)</div></div>
+</div>
+
+<h3>Requirements by Level</h3>
+<table>
+<tr><th>Level</th><th>Count</th><th>Percentage</th></tr>
+${Object.entries(stats.byLevel).map(([k,v])=>`<tr><td>${k}</td><td>${v}</td><td>${Math.round(v/stats.total*100)}%</td></tr>`).join("")}
+</table>
+
+<h3>Requirements by Status</h3>
+<table>
+<tr><th>Status</th><th>Count</th><th>Percentage</th></tr>
+${Object.entries(stats.byStatus).map(([k,v])=>`<tr><td>${k}</td><td>${v}</td><td>${Math.round(v/stats.total*100)}%</td></tr>`).join("")}
+</table>
+
+<h3>Quality Distribution</h3>
+<table>
+<tr><th>Grade</th><th>Score Range</th><th>Count</th><th>Percentage</th></tr>
+<tr><td>A (Excellent)</td><td>90-100%</td><td>${stats.gradeA}</td><td>${Math.round(stats.gradeA/stats.total*100)||0}%</td></tr>
+<tr><td>B (Good)</td><td>80-89%</td><td>${stats.gradeB}</td><td>${Math.round(stats.gradeB/stats.total*100)||0}%</td></tr>
+<tr><td>C (Acceptable)</td><td>70-79%</td><td>${stats.gradeC}</td><td>${Math.round(stats.gradeC/stats.total*100)||0}%</td></tr>
+<tr><td>D (Needs Work)</td><td>60-69%</td><td>${stats.gradeD}</td><td>${Math.round(stats.gradeD/stats.total*100)||0}%</td></tr>
+<tr><td>F (Poor)</td><td>0-59%</td><td>${stats.gradeF}</td><td>${Math.round(stats.gradeF/stats.total*100)||0}%</td></tr>
+</table>
+</div>
+
+<div class="page-break"></div>
+
+<!-- Requirements Register -->
+<div class="section">
+<h2>3. Requirements Register</h2>
+<table>
+<tr><th style="width:70px">ID</th><th style="width:45%">Statement</th><th>Type</th><th>Level</th><th>Status</th><th style="width:50px">Score</th></tr>
+${S.reqs.map(r=>{
+  const a=analyze(r.text);
+  const sc=a.score>=90?"a":a.score>=80?"b":a.score>=70?"c":a.score>=60?"d":"f";
+  const st=r.status.toLowerCase();
+  return`<tr>
+<td style="font-family:monospace;font-size:9px;color:#0284c7;font-weight:600">${r.id}</td>
+<td>${escXml(r.text)||"<em style='color:#94a3b8'>(empty)</em>"}</td>
+<td style="font-size:9px">${r.type}</td>
+<td style="font-size:9px">${r.level.replace(" Requirement","")}</td>
+<td><span class="badge-sm badge-${st}">${r.status}</span></td>
+<td class="score score-${sc}">${a.score}%</td>
+</tr>`;
+}).join("")}
+</table>
+</div>
+
+<div class="page-break"></div>
+
+<!-- Traceability -->
+<div class="section">
+<h2>4. Traceability Tree</h2>
+<p style="margin-bottom:16px;color:#64748b;font-size:11px;">Requirements hierarchy showing parent → child derivation relationships.</p>
+
+<style>
+.tree{margin:0;padding:0;}
+.tree-item{position:relative;padding:6px 0 6px 24px;border-left:2px solid #e2e8f0;}
+.tree-item:last-child{border-left-color:transparent;}
+.tree-item::before{content:"";position:absolute;left:-2px;top:14px;width:20px;height:2px;background:#e2e8f0;}
+.tree-item.level-0{border-left:none;padding-left:0;margin-top:12px;}
+.tree-item.level-0::before{display:none;}
+.tree-id{font-family:monospace;font-size:10px;font-weight:600;color:#0284c7;display:inline-block;min-width:70px;}
+.tree-text{font-size:10px;color:#475569;display:inline;}
+.tree-meta{font-size:9px;color:#94a3b8;margin-left:8px;}
+.tree-children{margin-left:20px;}
+.orphan-box{margin-top:24px;padding:12px;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;}
+.orphan-box h4{font-size:12px;color:#92400e;margin-bottom:8px;}
+</style>
+
+<div id="trace-tree">${treeHtml}</div>
+</div>
+
+<div class="page-break"></div>
+
+<!-- Glossary -->
+<div class="section">
+<h2>5. Glossary</h2>
+<table>
+<tr><th style="width:150px">Term</th><th>Definition</th></tr>
+${S.glossary.map(g=>`<tr><td style="font-weight:600">${escXml(g.term)}</td><td>${escXml(g.def)}</td></tr>`).join("")}
+</table>
+</div>
+
+<div class="footer">
+<span>${escXml(S.project)} — Requirements Report</span>
+<span>Generated by INCOSE Requirements Workbench v2.0</span>
+</div>
+
+</body>
+</html>`;
+
+  // Open print dialog
+  const printWindow=window.open("","_blank");
+  printWindow.document.write(html);
+  printWindow.document.close();
+  printWindow.onload=()=>{
+    setTimeout(()=>{
+      printWindow.print();
+    },250);
+  };
+  toast("PDF report opened — use Print to save as PDF","success");
+}
+
+// ─── CSV PARSER ──────────────────────────────────────────
+function parseCSV(text){
+  const lines=text.split(/\r?\n/).filter(l=>l.trim());
+  if(lines.length<2)return{headers:[],rows:[]};
+  
+  // Detect delimiter (comma, tab, semicolon)
+  const firstLine=lines[0];
+  let delimiter=",";
+  if(firstLine.split("\t").length>firstLine.split(",").length)delimiter="\t";
+  else if(firstLine.split(";").length>firstLine.split(",").length)delimiter=";";
+  
+  // Parse with proper quote handling
+  function parseLine(line){
+    const result=[];
+    let current="";
+    let inQuotes=false;
+    for(let i=0;i<line.length;i++){
+      const c=line[i];
+      if(c==='"'){
+        if(inQuotes&&line[i+1]==='"'){current+='"';i++;}
+        else inQuotes=!inQuotes;
+      }else if(c===delimiter&&!inQuotes){
+        result.push(current.trim());
+        current="";
+      }else{
+        current+=c;
+      }
+    }
+    result.push(current.trim());
+    return result;
+  }
+  
+  const headers=parseLine(lines[0]).map(h=>h.toLowerCase().replace(/[^a-z0-9]/g,""));
+  const rows=lines.slice(1).map(l=>parseLine(l)).filter(r=>r.some(c=>c));
+  return{headers,rows,delimiter};
+}
+
+function mapCSVToReqs(headers,rows){
+  // Map common column names to requirement fields
+  const colMap={};
+  const fieldAliases={
+    text:["text","statement","requirement","description","req","content","body"],
+    id:["id","reqid","req-id","requirement id","number","#"],
+    type:["type","category","reqtype","requirement type"],
+    level:["level","tier","reqlevel"],
+    priority:["priority","pri","importance"],
+    status:["status","state"],
+    verification:["verification","verificationmethod","vmethod","v&v"],
+    rationale:["rationale","reason","justification","why"],
+    parent:["parent","parentid","parent id","tracesto","derives from"],
+    source:["source","origin","reference"],
+    risk:["risk","risklevel"]
+  };
+  
+  // Find matching columns
+  headers.forEach((h,i)=>{
+    for(const[field,aliases]of Object.entries(fieldAliases)){
+      if(aliases.some(a=>h.includes(a.replace(/[^a-z0-9]/g,"")))){
+        if(!colMap[field])colMap[field]=i;
+      }
+    }
+  });
+  
+  // Must have text column
+  if(colMap.text===undefined){
+    // Try to find any column with "shall" in the data
+    for(let i=0;i<headers.length;i++){
+      if(rows.some(r=>r[i]&&/\bshall\b/i.test(r[i]))){
+        colMap.text=i;
+        break;
+      }
+    }
+  }
+  
+  if(colMap.text===undefined)return[];
+  
+  // Convert rows to requirements
+  return rows.map(row=>{
+    const req={};
+    if(colMap.text!==undefined)req.text=row[colMap.text]||"";
+    if(colMap.type!==undefined&&row[colMap.type]){
+      const t=row[colMap.type];
+      const match=REQ_TYPES.find(rt=>rt.toLowerCase()===t.toLowerCase());
+      if(match)req.type=match;
+    }
+    if(colMap.level!==undefined&&row[colMap.level]){
+      const l=row[colMap.level];
+      const match=REQ_LEVELS.find(rl=>rl.toLowerCase().includes(l.toLowerCase())||l.toLowerCase().includes(rl.toLowerCase().split(" ")[0]));
+      if(match)req.level=match;
+    }
+    if(colMap.priority!==undefined&&row[colMap.priority]){
+      const p=row[colMap.priority];
+      const match=PRIORITIES.find(pr=>pr.toLowerCase()===p.toLowerCase());
+      if(match)req.priority=match;
+    }
+    if(colMap.status!==undefined&&row[colMap.status]){
+      const s=row[colMap.status];
+      const match=STATUSES.find(st=>st.toLowerCase()===s.toLowerCase());
+      if(match)req.status=match;
+    }
+    if(colMap.verification!==undefined&&row[colMap.verification]){
+      const v=row[colMap.verification];
+      const match=V_METHODS.find(vm=>vm.toLowerCase()===v.toLowerCase());
+      if(match)req.verification=match;
+    }
+    if(colMap.rationale!==undefined)req.rationale=row[colMap.rationale]||"";
+    if(colMap.source!==undefined)req.source=row[colMap.source]||"";
+    return req;
+  }).filter(r=>r.text&&r.text.trim());
+}
+
 function importFile(file,type){
   const reader=new FileReader();
   reader.onload=e=>{
+    const content=e.target.result;
     if(type==="json"){
       try{
-        const d=JSON.parse(e.target.result);
+        History.save();
+        const d=JSON.parse(content);
         if(d.requirements){d.requirements.forEach(r=>S.reqs.push(mkReq(r)));if(d.glossary)S.glossary=[...S.glossary,...d.glossary];if(d.project)S.project=d.project;autoSave();toast(`Loaded ${d.requirements.length} requirements`,"success");S.view="dashboard";render();}
       }catch(err){toast("Invalid JSON","danger");render();}
-    }else{S.importText=e.target.result;S.showImport=true;render();}
+    }else if(type==="csv"){
+      // CSV/TSV import
+      const{headers,rows}=parseCSV(content);
+      if(rows.length===0){toast("No data found in file","danger");return;}
+      const reqs=mapCSVToReqs(headers,rows);
+      if(reqs.length===0){toast("No requirements found. Ensure there's a 'Text' or 'Statement' column.","danger");return;}
+      History.save();
+      reqs.forEach(r=>S.reqs.push(mkReq(r)));
+      autoSave();
+      toast(`Imported ${reqs.length} requirements from CSV`,"success");
+      S.view="dashboard";
+      render();
+    }else{
+      // Text document import (existing behavior)
+      S.importText=content;
+      S.showImport=true;
+      render();
+    }
   };
   reader.readAsText(file);
 }
@@ -602,12 +1183,12 @@ function render(){
     // Load file
     const fileLabel=h("label",{className:"file-drop",style:{display:"block",marginBottom:"16px"}});
     fileLabel.appendChild(h("div",{style:{fontSize:"24px",opacity:".3",marginBottom:"8px"}},"📂"));
-    fileLabel.appendChild(h("div",{style:{color:"var(--textMid)",fontSize:"13px"}},"Load Saved Project (.json) or Import Document (.txt, .csv)"));
-    const fileInput=h("input",{type:"file",accept:".json,.txt,.csv,.md",style:{display:"none"},onChange:e=>{const f=e.target.files[0];if(!f)return;const ext=f.name.split(".").pop().toLowerCase();importFile(f,ext==="json"?"json":"text");}});
+    fileLabel.appendChild(h("div",{style:{color:"var(--textMid)",fontSize:"13px"}},"Load Saved Project (.json) or Import Spreadsheet (.csv)"));
+    const fileInput=h("input",{type:"file",accept:".json,.txt,.csv,.tsv,.md",style:{display:"none"},onChange:e=>{const f=e.target.files[0];if(!f)return;const ext=f.name.split(".").pop().toLowerCase();importFile(f,ext==="json"?"json":(ext==="csv"||ext==="tsv")?"csv":"text");}});
     fileLabel.appendChild(fileInput);
     fileLabel.addEventListener("dragover",e=>{e.preventDefault();fileLabel.classList.add("dragover");});
     fileLabel.addEventListener("dragleave",()=>fileLabel.classList.remove("dragover"));
-    fileLabel.addEventListener("drop",e=>{e.preventDefault();fileLabel.classList.remove("dragover");const f=e.dataTransfer.files[0];if(f){const ext=f.name.split(".").pop().toLowerCase();importFile(f,ext==="json"?"json":"text");}});
+    fileLabel.addEventListener("drop",e=>{e.preventDefault();fileLabel.classList.remove("dragover");const f=e.dataTransfer.files[0];if(f){const ext=f.name.split(".").pop().toLowerCase();importFile(f,ext==="json"?"json":(ext==="csv"||ext==="tsv")?"csv":"text");}});
     card.appendChild(fileLabel);
 
     // Tutorial link
@@ -701,7 +1282,7 @@ function render(){
 
   const loadLabel=h("label",{className:"btn btn-sec",style:{cursor:"pointer",borderColor:"#38bdf844",color:"var(--accent)",display:"inline-flex",alignItems:"center"}});
   loadLabel.appendChild(document.createTextNode("📂 Load"));
-  const loadInput=h("input",{type:"file",accept:".json,.txt,.csv,.md",style:{display:"none"},onChange:e=>{const f=e.target.files[0];if(f){const ext=f.name.split(".").pop().toLowerCase();importFile(f,ext==="json"?"json":"text");}e.target.value="";}});
+  const loadInput=h("input",{type:"file",accept:".json,.txt,.csv,.tsv,.md",style:{display:"none"},onChange:e=>{const f=e.target.files[0];if(f){const ext=f.name.split(".").pop().toLowerCase();importFile(f,ext==="json"?"json":(ext==="csv"||ext==="tsv")?"csv":"text");}e.target.value="";}});
   loadLabel.appendChild(loadInput);hActions.appendChild(loadLabel);
 
   // Export dropdown
@@ -709,7 +1290,7 @@ function render(){
   expWrap.appendChild(h("button",{className:"btn btn-sec",onClick:()=>{S.showExport=!S.showExport;render();}},"↓ Export ▾"));
   if(S.showExport){
     const dd=h("div",{style:{position:"absolute",top:"100%",right:0,marginTop:"4px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:"10px",padding:"4px",minWidth:"180px",boxShadow:"0 12px 40px rgba(0,0,0,.5)",zIndex:200}});
-    [{l:"CSV Spreadsheet",fn:exportCSV},{l:"ReqIF (DOORS)",fn:exportReqIF},{l:"JSON Archive",fn:exportJSON}].forEach(({l,fn})=>{
+    [{l:"📄 PDF Report",fn:exportPDF},{l:"CSV Spreadsheet",fn:exportCSV},{l:"ReqIF (DOORS)",fn:exportReqIF},{l:"JSON Archive",fn:exportJSON}].forEach(({l,fn})=>{
       const item=h("button",{style:{display:"block",width:"100%",padding:"10px 16px",border:"none",background:"transparent",color:"var(--text)",fontSize:"13px",textAlign:"left",cursor:"pointer",borderRadius:"6px",fontFamily:"inherit"},onClick:()=>{fn();S.showExport=false;render();}},l);
       item.addEventListener("mouseenter",()=>item.style.background="var(--surfAlt)");
       item.addEventListener("mouseleave",()=>item.style.background="transparent");
@@ -717,12 +1298,17 @@ function render(){
     });
     dd.appendChild(h("div",{style:{borderTop:"1px solid var(--border)",margin:"4px 0"}}));
     const impLabel=h("label",{style:{display:"block",padding:"10px 16px",color:"var(--text)",fontSize:"13px",cursor:"pointer",borderRadius:"6px"}});
-    impLabel.textContent="↑ Import Document";
-    impLabel.appendChild(h("input",{type:"file",accept:".txt,.csv,.md",style:{display:"none"},onChange:e=>{const f=e.target.files[0];if(f)importFile(f,"text");S.showExport=false;}}));
+    impLabel.textContent="↑ Import CSV/Document";
+    impLabel.appendChild(h("input",{type:"file",accept:".txt,.csv,.tsv,.md",style:{display:"none"},onChange:e=>{const f=e.target.files[0];if(f){const ext=f.name.split(".").pop().toLowerCase();importFile(f,(ext==="csv"||ext==="tsv")?"csv":"text");}S.showExport=false;}}));
     dd.appendChild(impLabel);expWrap.appendChild(dd);
   }
   hActions.appendChild(expWrap);
   hActions.appendChild(h("button",{className:"btn btn-sec",style:{borderColor:"#a78bfa44",color:"var(--purple)"},onClick:()=>{S.showBulkAI=true;render();}},"⚡ Bulk AI"));
+  
+  // Theme toggle button
+  const isDark=!document.documentElement.classList.contains("light");
+  const themeBtn=h("button",{className:"btn btn-sec",style:{borderColor:"var(--border)",padding:"8px 12px",fontSize:"16px"},onClick:toggleTheme,title:isDark?"Switch to Light Mode":"Switch to Dark Mode"},isDark?"☀️":"🌙");
+  hActions.appendChild(themeBtn);
   
   // Help button - links to tutorial
   const helpBtn=h("a",{href:"https://github.com/ssaleem74/incose-requirements-workbench#readme",target:"_blank",className:"btn btn-sec",style:{borderColor:"#38bdf844",color:"var(--accent)",textDecoration:"none",display:"inline-flex",alignItems:"center"}},"? Help");
@@ -1091,7 +1677,7 @@ function render(){
   if(S.view==="glossary"){
     const ghdr=h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"20px"}});
     ghdr.appendChild(h("div",{},h("h2",{style:{fontSize:"20px",fontWeight:700}},"Project Glossary"),h("p",{style:{color:"var(--textDim)",fontSize:"13px",marginTop:"2px"}},"Per R4 (Defined Terms) & R36 (Consistent Terms)")));
-    ghdr.appendChild(h("button",{className:"btn btn-pri",onClick:()=>{S.glossary.push({term:"",def:""});render();}},"+ Add Term"));
+    ghdr.appendChild(h("button",{className:"btn btn-pri",onClick:()=>{History.save();S.glossary.push({term:"",def:""});render();}},"+ Add Term"));
     main.appendChild(ghdr);
     const gCard=h("div",{className:"card",style:{padding:0,overflow:"hidden"}});
     const gHdr=h("div",{style:{display:"grid",gridTemplateColumns:"200px 1fr 50px",gap:"14px",padding:"12px 20px",background:"var(--surface)",fontSize:"10px",fontWeight:700,color:"var(--textDim)",textTransform:"uppercase",letterSpacing:".06em"}});
@@ -1100,7 +1686,7 @@ function render(){
       const row=h("div",{style:{display:"grid",gridTemplateColumns:"200px 1fr 50px",gap:"14px",padding:"10px 20px",borderTop:"1px solid var(--border)",alignItems:"center"}});
       row.appendChild(h("input",{className:"input",style:{fontWeight:600},value:g.term,placeholder:"Term",onInput:e=>{S.glossary[i].term=e.target.value;autoSave();}}));
       row.appendChild(h("input",{className:"input",value:g.def,placeholder:"Definition",onInput:e=>{S.glossary[i].def=e.target.value;autoSave();}}));
-      row.appendChild(h("button",{className:"btn btn-danger",style:{padding:"4px 8px",fontSize:"11px"},onClick:()=>{S.glossary.splice(i,1);autoSave();render();}},"✕"));
+      row.appendChild(h("button",{className:"btn btn-danger",style:{padding:"4px 8px",fontSize:"11px"},onClick:()=>{History.save();S.glossary.splice(i,1);autoSave();render();}},"✕"));
       gCard.appendChild(row);
     });
     if(!S.glossary.length)gCard.appendChild(h("div",{style:{padding:"28px",textAlign:"center",color:"var(--textDim)",fontSize:"12px"}},"No terms."));
